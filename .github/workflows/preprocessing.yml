@@ -38,7 +38,7 @@ jobs:
           cd preprocessing
           python automate_Melinda-Sevira.py \
             --output_dir smsa_preprocessing \
-            --raw_dir ../smsa_raw
+            --raw_dir smsa_raw
 
       - name: Verify Output
         run: |
