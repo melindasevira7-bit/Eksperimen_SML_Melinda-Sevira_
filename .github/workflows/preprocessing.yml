@@ -50,7 +50,7 @@ jobs:
           print(f'Shape: {df.shape}')
           print(f'Kolom: {list(df.columns)}')
           print(f'Distribusi label:')
-          print(df['sentiment'].value_counts())
+          print(df['label'].value_counts())
           "
 
       - name: Upload Preprocessed Dataset as Artifact
