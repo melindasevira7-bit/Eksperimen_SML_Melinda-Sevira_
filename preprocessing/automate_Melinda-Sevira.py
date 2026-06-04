@@ -58,7 +58,7 @@ def load_data(save_raw: bool = True, raw_dir: str = '../smsa_raw') -> pd.DataFra
         DataFrame gabungan semua split.
     """
     logger.info("Memuat dataset SmSA dari HuggingFace...")
-    dataset = load_dataset('indonlu', 'smsa')
+    dataset = load_dataset('indonlp/indonlu', 'smsa')
 
     df_train = pd.DataFrame(dataset['train'])
     df_val   = pd.DataFrame(dataset['validation'])
