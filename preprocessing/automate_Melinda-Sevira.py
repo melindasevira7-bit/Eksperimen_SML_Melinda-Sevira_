@@ -1,8 +1,8 @@
 """
 automate_Melinda-Sevira.py
 ==========================
-Script otomatisasi preprocessing dataset SmSA (Shopee Multi-domain Sentiment Analysis)
-untuk klasifikasi sentimen Bahasa Indonesia.
+Script otomatisasi preprocessing dataset hate speech & abusive language
+(Indonesian Twitter Text) untuk klasifikasi teks Bahasa Indonesia.
 
 Cara penggunaan:
     python automate_Melinda-Sevira.py
@@ -22,9 +22,6 @@ import logging
 import nltk
 from nltk.tokenize import word_tokenize
 from nltk.corpus import stopwords
-from datasets import load_dataset
-from sklearn.model_selection import train_test_split
-from sklearn.feature_extraction.text import TfidfVectorizer
 from sklearn.preprocessing import LabelEncoder
 
 # ─── Logging Setup ────────────────────────────────────────────────────────────
@@ -34,6 +31,7 @@ logging.basicConfig(
     datefmt='%Y-%m-%d %H:%M:%S'
 )
 logger = logging.getLogger(__name__)
+
 
 # ─── Download NLTK Resources ──────────────────────────────────────────────────
 def download_nltk_resources():
@@ -46,32 +44,24 @@ def download_nltk_resources():
 
 
 # ─── Load Dataset ─────────────────────────────────────────────────────────────
-def load_data(save_raw: bool = True, raw_dir: str = '../smsa_raw') -> pd.DataFrame:
+def load_data(raw_dir: str = '../smsa_raw', save_raw: bool = True) -> pd.DataFrame:
     """
-    Memuat dataset SmSA dari HuggingFace dan menggabungkan semua split.
+    Memuat dataset dari file CSV lokal.
 
     Args:
-        save_raw: Jika True, simpan raw dataset ke CSV.
-        raw_dir: Direktori penyimpanan raw dataset.
+        raw_dir: Direktori yang berisi file data_raw.csv
+        save_raw: Jika True, simpan salinan raw dataset.
 
     Returns:
-        DataFrame gabungan semua split.
+        DataFrame hasil loading.
     """
-    logger.info("Memuat dataset SmSA dari HuggingFace...")
-    dataset = load_dataset('indonlp/indonlu', 'smsa', trust_remote_code=True)
+    raw_path = os.path.join(raw_dir, 'data.csv')
+    logger.info(f"Memuat dataset dari: {raw_path}")
 
-    df_train = pd.DataFrame(dataset['train'])
-    df_val   = pd.DataFrame(dataset['validation'])
-    df_test  = pd.DataFrame(dataset['test'])
-
-    df = pd.concat([df_train, df_val, df_test], ignore_index=True)
-    logger.info(f"Dataset berhasil dimuat. Total baris: {len(df)}")
-
-    if save_raw:
-        os.makedirs(raw_dir, exist_ok=True)
-        raw_path = os.path.join(raw_dir, 'smsa_raw.csv')
-        df.to_csv(raw_path, index=False)
-        logger.info(f"Raw dataset disimpan ke: {raw_path}")
+    df = pd.read_csv(raw_path)
+    logger.info(f"Dataset berhasil dimuat. Shape: {df.shape}")
+    logger.info(f"Kolom: {list(df.columns)}")
+    logger.info(f"Distribusi label:\n{df.iloc[:, -1].value_counts().to_string()}")
 
     return df
 
@@ -83,25 +73,16 @@ def build_stopwords() -> set:
     custom_stopwords = {
         'yg', 'nya', 'ini', 'itu', 'dan', 'di', 'ke', 'dari',
         'utk', 'tdk', 'gak', 'ga', 'ya', 'aja', 'jg', 'sy',
-        'dgn', 'dg', 'tp', 'tapi', 'sdh', 'udah', 'dah', 'jd'
+        'dgn', 'dg', 'tp', 'tapi', 'sdh', 'udah', 'dah', 'jd',
+        'rt', 'amp', 'via'
     }
     stop_words.update(custom_stopwords)
     return stop_words
 
 
 def clean_text(text: str) -> str:
-    """
-    Membersihkan teks dari noise.
-
-    Steps:
-        1. Lowercase
-        2. Hapus URL
-        3. Hapus mention & hashtag
-        4. Hapus angka
-        5. Hapus tanda baca
-        6. Hapus whitespace berlebih
-    """
-    text = text.lower()
+    """Membersihkan teks dari noise."""
+    text = str(text).lower()
     text = re.sub(r'http\S+|www\S+', '', text)
     text = re.sub(r'@\w+|#\w+', '', text)
     text = re.sub(r'\d+', '', text)
@@ -111,16 +92,7 @@ def clean_text(text: str) -> str:
 
 
 def tokenize_and_remove_stopwords(text: str, stop_words: set) -> str:
-    """
-    Tokenisasi teks dan hapus stopwords.
-
-    Args:
-        text: Teks yang sudah di-clean.
-        stop_words: Set stopwords.
-
-    Returns:
-        Teks yang sudah ditokenisasi dan bebas stopwords.
-    """
+    """Tokenisasi teks dan hapus stopwords."""
     tokens = word_tokenize(text)
     tokens = [t for t in tokens if t not in stop_words and len(t) > 1]
     return ' '.join(tokens)
@@ -135,20 +107,14 @@ def preprocess_text(text: str, stop_words: set) -> str:
 
 # ─── Full Preprocessing Pipeline ─────────────────────────────────────────────
 def run_preprocessing(df: pd.DataFrame) -> pd.DataFrame:
-    """
-    Menjalankan full preprocessing pipeline pada DataFrame.
-
-    Args:
-        df: DataFrame raw dengan kolom 'text' dan 'label'.
-
-    Returns:
-        DataFrame hasil preprocessing.
-    """
+    """Menjalankan full preprocessing pipeline pada DataFrame."""
     logger.info("Memulai preprocessing...")
 
-    # Mapping label
-    label_map = {0: 'positif', 1: 'netral', 2: 'negatif'}
-    df['sentiment'] = df['label'].map(label_map)
+    # Identifikasi kolom teks dan label
+    text_col = 'Tweet' if 'Tweet' in df.columns else df.columns[0]
+    label_col = 'HS' if 'HS' in df.columns else df.columns[-1]
+
+    logger.info(f"Kolom teks: {text_col}, Kolom label: {label_col}")
 
     # Build stopwords
     stop_words = build_stopwords()
@@ -156,7 +122,10 @@ def run_preprocessing(df: pd.DataFrame) -> pd.DataFrame:
 
     # Clean & preprocess teks
     logger.info("Melakukan cleaning dan tokenisasi teks...")
-    df['text_clean'] = df['text'].apply(lambda x: preprocess_text(x, stop_words))
+    df['text_clean'] = df[text_col].apply(lambda x: preprocess_text(x, stop_words))
+
+    # Rename kolom untuk konsistensi
+    df = df.rename(columns={text_col: 'text', label_col: 'label'})
 
     # Hapus baris dengan teks kosong
     before = len(df)
@@ -167,57 +136,44 @@ def run_preprocessing(df: pd.DataFrame) -> pd.DataFrame:
 
     # Label encoding
     le = LabelEncoder()
-    df['label_encoded'] = le.fit_transform(df['sentiment'])
+    df['label_encoded'] = le.fit_transform(df['label'].astype(str))
     logger.info(f"Label classes: {list(le.classes_)}")
-
     logger.info(f"Preprocessing selesai. Total data: {len(df)}")
+
     return df
 
 
 # ─── Save Output ──────────────────────────────────────────────────────────────
 def save_preprocessed(df: pd.DataFrame, output_dir: str = 'smsa_preprocessing'):
-    """
-    Menyimpan hasil preprocessing ke CSV.
-
-    Args:
-        df: DataFrame hasil preprocessing.
-        output_dir: Direktori output.
-    """
+    """Menyimpan hasil preprocessing ke CSV."""
     os.makedirs(output_dir, exist_ok=True)
     output_path = os.path.join(output_dir, 'smsa_preprocessed.csv')
 
-    cols = ['text', 'text_clean', 'sentiment', 'label_encoded']
-    df[cols].to_csv(output_path, index=False)
-    logger.info(f"Dataset preprocessing disimpan ke: {output_path}")
+    cols = ['text', 'text_clean', 'label', 'label_encoded']
+    available_cols = [c for c in cols if c in df.columns]
+    df[available_cols].to_csv(output_path, index=False)
 
-    # Tampilkan statistik
-    logger.info(f"Shape: {df[cols].shape}")
-    logger.info(f"Distribusi label:\n{df['sentiment'].value_counts().to_string()}")
+    logger.info(f"Dataset preprocessing disimpan ke: {output_path}")
+    logger.info(f"Shape: {df[available_cols].shape}")
+    logger.info(f"Distribusi label:\n{df['label'].value_counts().to_string()}")
 
     return output_path
 
 
 # ─── Main ─────────────────────────────────────────────────────────────────────
 def main():
-    parser = argparse.ArgumentParser(description='Automate preprocessing SmSA dataset')
+    parser = argparse.ArgumentParser(description='Automate preprocessing dataset')
     parser.add_argument('--output_dir', type=str, default='smsa_preprocessing',
                         help='Direktori output hasil preprocessing')
     parser.add_argument('--raw_dir', type=str, default='../smsa_raw',
-                        help='Direktori penyimpanan raw dataset')
+                        help='Direktori yang berisi raw dataset')
     parser.add_argument('--no_save_raw', action='store_true',
                         help='Tidak menyimpan raw dataset')
     args = parser.parse_args()
 
-    # Step 1: Download NLTK resources
     download_nltk_resources()
-
-    # Step 2: Load data
-    df = load_data(save_raw=not args.no_save_raw, raw_dir=args.raw_dir)
-
-    # Step 3: Preprocessing
+    df = load_data(raw_dir=args.raw_dir, save_raw=not args.no_save_raw)
     df_processed = run_preprocessing(df)
-
-    # Step 4: Save
     output_path = save_preprocessed(df_processed, output_dir=args.output_dir)
 
     logger.info("=" * 50)
